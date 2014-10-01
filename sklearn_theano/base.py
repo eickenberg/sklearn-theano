@@ -171,7 +171,7 @@ class MarginalConvolution(object):
         self.expression_ = self.expression_.reshape(
             (self.input_.shape[0], -1) + output_shape)
         if self.border_mode == 'same':
-            start_crop = (self.convolution_filter_.shape[-2:] - 1) / 2
+            start_crop = (self.convolution_filter_.shape[-2:] - 1) // 2
             end_crop = (self.convolution_filter_.shape[-2:] - 1
                           - start_crop)
             self.expression_ = self.expression_[:, :,
