@@ -118,7 +118,6 @@ class MarginalConvolution(object):
                  activation=None,
                  border_mode='valid',
                  subsample=None,
-                 cropping=None,
                  input_dtype='float32'):
         self.convolution_filter = convolution_filter
         self.activation = activation
@@ -145,6 +144,9 @@ class MarginalConvolution(object):
             self.convolution_filter_ = cf
 
         self.input_ = T.tensor4(dtype=self.input_dtype)
+        border_mode_ = self.border_mode
+        if border_mode_ == 'same':
+            border_mode_ = 'full'
         self.expression_ = T.nnet.conv2d(
             self.input_.reshape((-1, 1,
                                   self.input_.shape[-2],
@@ -152,15 +154,15 @@ class MarginalConvolution(object):
             self.convolution_filter_.reshape((-1, 1,
                                   self.convolution_filter_.shape[-2],
                                   self.convolution_filter_.shape[-1])),
-            border_mode=self.border_mode,
+            border_mode=border_mode_,
             subsample=self.subsample_)
-        if self.border_mode == 'valid':
+        if border_mode_ == 'valid':
             output_shape = (
                 self.input_.shape[-2] -
                 self.convolution_filter_.shape[-2] + 1,
                 self.input_.shape[-1] -
                 self.convolution_filter_.shape[-1] + 1)
-        elif self.border_mode == 'full':
+        elif border_mode_ == 'full':
             output_shape = (
                 self.input_.shape[-2] +
                 self.convolution_filter_.shape[-2] - 1,
@@ -168,6 +170,13 @@ class MarginalConvolution(object):
                 self.convolution_filter_.shape[-1] - 1)
         self.expression_ = self.expression_.reshape(
             (self.input_.shape[0], -1) + output_shape)
+        if self.border_mode == 'same':
+            start_crop = (self.convolution_filter_.shape[-2:] - 1) / 2
+            end_crop = (self.convolution_filter_.shape[-2:] - 1
+                          - start_crop)
+            self.expression_ = self.expression_[:, :,
+                start_crop[0]:-end_crop[0],
+                start_crop[1]:-end_crop[1]]
         activation_function = ACTIVATIONS[self.activation]
         self.expression_ = activation_function(self.expression_)
 
