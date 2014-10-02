@@ -1,4 +1,5 @@
 from numpy.testing import assert_array_almost_equal
+from sklearn.utils.testing import assert_less
 import numpy as np
 import theano
 from scipy.signal import convolve2d
@@ -44,22 +45,47 @@ def test_marginal_convolution():
 
     for convolution_filters in convolution_filterss:
         for border_mode in ['full', 'valid', 'same']:
-            conv = MarginalConvolution(convolution_filters,
-                                       border_mode=border_mode,
-                                       activation=None)
-            conv_func = theano.function([conv.input_],
-                                        conv.expression_)
-            convolved = conv_func(images)
-            convolutions = np.array([
-                    [[convolve2d(img, convolution_filter,
-                                 mode=border_mode)
-                      for convolution_filter in convolution_filters]
-                     for img in imgs]
-                    for imgs in images])
-            convolutions = convolutions.reshape(images.shape[0], -1,
-                                                convolutions.shape[-2],
-                                                convolutions.shape[-1])
-            assert_array_almost_equal(convolved, convolutions, decimal=3)
+            for subsample in [(1, 1), (2, 2), (1, 2), (3, 2)]:
+                conv = MarginalConvolution(convolution_filters,
+                                           border_mode=border_mode,
+                                           subsample=subsample,
+                                           activation=None)
+                conv_func = theano.function([conv.input_],
+                                            conv.expression_)
+                convolved = conv_func(images)
+                convolutions = np.array([
+                        [[convolve2d(
+                                    img,
+                                    convolution_filter,
+                                    mode=border_mode)
+                          for convolution_filter in convolution_filters]
+                         for img in imgs]
+                        for imgs in images])
+                indices_i = np.arange(
+                    (convolutions.shape[-2] + subsample[0] - 1)
+                    // subsample[0]) * subsample[0]
+                indices_j = np.arange(
+                    (convolutions.shape[-1] + subsample[1] - 1)
+                    // subsample[1]) * subsample[1]
+                convolutions = convolutions.reshape(images.shape[0], -1,
+                                                    convolutions.shape[-2],
+                                                    convolutions.shape[-1])
+                if border_mode != 'same':
+                    assert_array_almost_equal(
+                        convolved,
+                        convolutions[:, :,
+                            indices_i[:, np.newaxis],
+                            indices_j[np.newaxis, :]],
+                        decimal=3)
+                else:
+                    # For valid check only approximate shape, because
+                    # all this is approximate
+                    shape_diff = (np.array(convolved.shape) - 
+                                  np.array(convolutions[:, :,
+                            indices_i[:, np.newaxis],
+                            indices_j[np.newaxis, :]].shape))
+                    assert_less(np.abs(shape_diff).max(), 2)
+                                  
 
 
 def test_fuse():

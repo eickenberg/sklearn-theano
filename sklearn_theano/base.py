@@ -134,7 +134,9 @@ class MarginalConvolution(object):
         else:
             self.subsample_ = self.subsample
 
-        cf = self.convolution_filter
+        cf = self.convolution_filter.reshape((-1, 1,
+                                  self.convolution_filter.shape[-2],
+                                  self.convolution_filter.shape[-1]))
         if not isinstance(cf, T.sharedvar.TensorSharedVariable):
             if isinstance(cf, np.ndarray):
                 self.convolution_filter_ = theano.shared(cf)
@@ -151,29 +153,22 @@ class MarginalConvolution(object):
             self.input_.reshape((-1, 1,
                                   self.input_.shape[-2],
                                   self.input_.shape[-1])),
-            self.convolution_filter_.reshape((-1, 1,
-                                  self.convolution_filter_.shape[-2],
-                                  self.convolution_filter_.shape[-1])),
+            self.convolution_filter_,
             border_mode=border_mode_,
             subsample=self.subsample_)
-        if border_mode_ == 'valid':
-            output_shape = (
-                self.input_.shape[-2] -
-                self.convolution_filter_.shape[-2] + 1,
-                self.input_.shape[-1] -
-                self.convolution_filter_.shape[-1] + 1)
-        elif border_mode_ == 'full':
-            output_shape = (
-                self.input_.shape[-2] +
-                self.convolution_filter_.shape[-2] - 1,
-                self.input_.shape[-1] +
-                self.convolution_filter_.shape[-1] - 1)
+        output_shape = (self.expression_.shape[-2],
+                        self.expression_.shape[-1])
+
         self.expression_ = self.expression_.reshape(
-            (self.input_.shape[0], -1) + output_shape)
+            (self.input_.shape[0],
+             self.input_.shape[1] * self.convolution_filter_.shape[0])
+            + output_shape)
         if self.border_mode == 'same':
-            start_crop = (self.convolution_filter_.shape[-2:] - 1) // 2
-            end_crop = (self.convolution_filter_.shape[-2:] - 1
-                          - start_crop)
+            start_crop = (self.convolution_filter_.shape[-2:] - 1) // (
+                2 * np.array(self.subsample_))
+            end_crop = ((self.convolution_filter_.shape[-2:] - 1) // (
+                    np.array(self.subsample_))
+                        - start_crop)
             self.expression_ = self.expression_[:, :,
                 start_crop[0]:-end_crop[0],
                 start_crop[1]:-end_crop[1]]
