@@ -10,8 +10,8 @@ def _rotation_matrices(angles):
     Parameters
     ==========
 
-    angles : tensor variable or shared variable or array-like
-        array-like will be converted to shared variable.
+    angles : tensor variable or shared variable or array-like.
+        angles of rotation.
     """
 
     if not (isinstance(angles, T.TensorVariable) or
@@ -76,4 +76,40 @@ class _nd_grid(object):
 
 _mgrid = _nd_grid()
 _ogrid = _nd_grid(sparse=True)
+
+
+def morlet_filter_2d(shape, sigmas, slant, xis, thetas, offset=None):
+
+    xgrid, ygrid = _mgrid[0:shape[0]:1., 0:shape[1]:1.]
+
+    if offset is not None:
+        xgrid = xgrid - offset[0]
+        ygrid = ygrid - offset[1]
+
+    xgrid = xgrid - (shape[0] // 2)
+    ygrid = ygrid - (shape[1] // 2)
+
+    stacked_grid = T.vertical_stack(xgrid.reshape((1, -1)),
+                                    ygrid.reshape((1, -1)))
+    rotations = _rotation_matrices(thetas)
+    rotated_grids = T.dot(rotations, stacked_grid)
+
+    dilations = T.as_tensor_variable(
+        [sigmas ** -1, slant / sigmas]).T.reshape((sigmas.shape[0], 1, 2, 1))
+    dilated_grids = rotated_grids * dilations
+    dilated_distances_squared = (dilated_grids ** 2).sum(2)
+    gaussian_envelopes = T.exp(-dilated_distances_squared / 2)
+
+    oscillations_cos = T.cos(rotated_grids[np.newaxis, :, 1, :] *
+                             xis.reshape((xis.shape[0], 1, 1)))
+    oscillations_sin = T.sin(rotated_grids[np.newaxis, :, 1, :] *
+                             xis.reshape((xis.shape[0], 1, 1)))
+
+    gabor_cos = gaussian_envelopes * oscillations_cos
+    gabor_sin = gaussian_envelopes * oscillations_sin
+
+    return rotated_grids, dilated_grids, dilated_distances_squared, gaussian_envelopes, oscillations_cos, oscillations_sin, gabor_cos, gabor_sin
+
+
+
 
