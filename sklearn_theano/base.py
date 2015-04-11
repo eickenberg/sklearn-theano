@@ -306,7 +306,9 @@ if LooseVersion(theano.__version__) < LooseVersion('0.7.0'):
 else:
     def fancy_max_pool(input_tensor, pool_shape, pool_stride,
                        ignore_border=False, padding=(0, 0)):
-        return T.signal.downsample.maxpool_2d(input_tensor, pool_shape,
+        if padding not in [0, (0, 0)]:
+            ignore_border = True
+        return T.signal.downsample.max_pool_2d(input_tensor, pool_shape,
                                               ignore_border=ignore_border,
                                               st=pool_stride,
                                               padding=padding)
@@ -383,9 +385,10 @@ class CaffePool(object):
         # Replicating caffe style pooling means zero padding
         # then strided pooling with ignore_border=True
         if self.pool_type == 'max':
-            pooled = fancy_max_pool(padded_input,
+            pooled = fancy_max_pool(self.input_,
                                     self.pool_shape, self.pool_stride,
-                                    ignore_border=False)
+                                    ignore_border=False,
+                                    padding=self.padding)
         elif self.pool_type == 'avg':
             if self.padding in [0, (0, 0)]:
                 padded_input = self.input_
