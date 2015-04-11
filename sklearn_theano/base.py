@@ -244,7 +244,7 @@ def _lcm(num1, num2):
 
 
 def fancy_max_pool_(input_tensor, pool_shape, pool_stride,
-                    ignore_border=False):
+                    ignore_border=False, padding=(0, 0)):
     """Using theano built-in maxpooling, create a more flexible version.
 
     Obviously suboptimal, but gets the work done."""
@@ -262,11 +262,18 @@ def fancy_max_pool_(input_tensor, pool_shape, pool_stride,
     lcmh, lcmw = [_lcm(p, s) for p, s in zip(pool_shape, pool_stride)]
     dsh, dsw = lcmh // pool_shape[0], lcmw // pool_shape[1]
 
-    pre_shape = input_tensor.shape[:-2]
+    if padding in [0, (0, 0)]:
+        padded_input = input_tensor
+    else:
+        zero_padder = ZeroPad(padding=padding)
+        zero_padder._build_expression(input_tensor)
+        padded_input = zero_padder.expression_
+
+    pre_shape = padded_input.shape[:-2]
     length = T.prod(pre_shape)
-    post_shape = input_tensor.shape[-2:]
+    post_shape = padded_input.shape[-2:]
     new_shape = T.concatenate([[length], post_shape])
-    reshaped_input = input_tensor.reshape(new_shape, ndim=3)
+    reshaped_input = padded_input.reshape(new_shape, ndim=3)
     sub_pools = []
     for sh in range(0, lcmh, pool_stride[0]):
         sub_pool = []
@@ -280,14 +287,14 @@ def fancy_max_pool_(input_tensor, pool_shape, pool_stride,
     output_shape = (length,
                     T.sum([l[0].shape[1] for l in sub_pools]),
                     T.sum([i.shape[2] for i in sub_pools[0]]))
-    output = T.zeros(output_shape, dtype=input_tensor.dtype)
+    output = T.zeros(output_shape, dtype=padded_input.dtype)
     for i, line in enumerate(sub_pools):
         for j, item in enumerate(line):
             output = T.set_subtensor(output[:, i::lcmh // pool_stride[0],
                                                j::lcmw // pool_stride[1]],
                                      item)
     return output.reshape(T.concatenate([pre_shape, output.shape[1:]]),
-                          ndim=input_tensor.ndim)
+                          ndim=padded_input.ndim)
 
 
 if LooseVersion(theano.__version__) < LooseVersion('0.7.0'):
@@ -298,10 +305,11 @@ if LooseVersion(theano.__version__) < LooseVersion('0.7.0'):
     fancy_max_pool = fancy_max_pool_
 else:
     def fancy_max_pool(input_tensor, pool_shape, pool_stride,
-                       ignore_border=False):
+                       ignore_border=False, padding=(0, 0)):
         return T.signal.downsample.maxpool_2d(input_tensor, pool_shape,
                                               ignore_border=ignore_border,
-                                              st=pool_stride)
+                                              st=pool_stride,
+                                              padding=padding)
 
 class FancyMaxPool(object):
     """Extended pooling functionality. Allows independent specification
@@ -374,17 +382,17 @@ class CaffePool(object):
 
         # Replicating caffe style pooling means zero padding
         # then strided pooling with ignore_border=True
-        if self.padding in [0, (0, 0)]:
-            padded_input = self.input_
-        else:
-            zero_padder = ZeroPad(padding=self.padding)
-            zero_padder._build_expression(self.input_)
-            padded_input = zero_padder.expression_
         if self.pool_type == 'max':
             pooled = fancy_max_pool(padded_input,
                                     self.pool_shape, self.pool_stride,
                                     ignore_border=False)
         elif self.pool_type == 'avg':
+            if self.padding in [0, (0, 0)]:
+                padded_input = self.input_
+            else:
+                zero_padder = ZeroPad(padding=self.padding)
+                zero_padder._build_expression(self.input_)
+                padded_input = zero_padder.expression_
             # self.pool_shape needs to be a tuple
             avg_kernel = T.cast(T.ones((1, 1) + self.pool_shape,
                                 dtype=self.input_.dtype
