@@ -8,6 +8,9 @@ import numpy as np
 import theano.tensor as T
 from theano.tensor.signal.downsample import max_pool_2d
 
+from distutils.version import LooseVersion
+import warnings
+
 
 def _relu(x):
     return T.maximum(x, 0)
@@ -239,7 +242,7 @@ def _lcm(num1, num2):
     return num1 * num2 / _gcd(num1, num2)
 
 
-def fancy_max_pool(input_tensor, pool_shape, pool_stride,
+def fancy_max_pool_(input_tensor, pool_shape, pool_stride,
                     ignore_border=False):
     """Using theano built-in maxpooling, create a more flexible version.
 
@@ -286,6 +289,19 @@ def fancy_max_pool(input_tensor, pool_shape, pool_stride,
     return output.reshape(T.concatenate([pre_shape, output.shape[1:]]),
                           ndim=input_tensor.ndim)
 
+
+if LooseVersion(theano.__version__) < LooseVersion('0.7.0'):
+    warnings.warn(('Using theano 0.7.0 or later is recommended.'
+                   ' Current version is %s. Support for versions earlier'
+                   ' than 0.7.0 will be removed at first release.')
+                  % theano.__version__)
+    fancy_max_pool = fancy_max_pool_
+else:
+    def fancy_max_pool(input_tensor, pool_shape, pool_stride,
+                       ignore_border=False):
+        return T.signal.downsample.maxpool_2d(input_tensor, pool_shape,
+                                              ignore_border=ignore_border,
+                                              st=pool_stride)
 
 class FancyMaxPool(object):
     """Extended pooling functionality. Allows independent specification
