@@ -1,9 +1,15 @@
+import os
 import theano
 import theano.tensor as T
 import numpy as np
 from sklearn_theano.feature_extraction.scattering import _rotation_matrices
 from sklearn_theano.feature_extraction.scattering import _mgrid, _ogrid
+from sklearn_theano.feature_extraction.scattering import morlet_filter_2d
+from sklearn_theano.feature_extraction.scattering import (
+    morlet_filter_bank_2d)
+from sklearn_theano.feature_extraction.scattering import _fft2
 from numpy.testing import assert_array_equal, assert_array_almost_equal
+from sklearn.utils import check_random_state
 
 
 def test__rotation_matrices():
@@ -63,3 +69,141 @@ def test__mgrid__ogrid():
                       [tfmgrid, timgrid, tfogrid, tiogrid]):
         for v1, v2 in zip(g1, g2):
             assert_array_almost_equal(v1, v2.eval(), decimal=6)
+
+
+def test_morlet_filters(verbose=0):
+    # This test works when the file morlet_filters_noDC.mat
+    # is present in the test directory. It can be generated using
+    # get_scattering_morlet_noDC.m
+    fname = 'morlet_filters_noDC.mat'
+    if os.path.exists(fname):
+        from scipy.io import loadmat
+        m = loadmat(fname)
+        N, M, sigmas, slants, xis, thetas, filters = [
+            m[key] for key in
+            ['N', 'M', 'sigmas', 'slants', 'xis', 'thetas', 'filters']]
+
+        N = int(N[0, 0])
+        M = int(M[0, 0])
+        sigmas_var = T.fvector()
+        slant_var = T.fscalar()
+        xis_var = T.fvector()
+        thetas_var = T.fvector()
+
+        morlet_expr = morlet_filter_2d((N, M), sigmas_var, slant_var,
+                                       xis_var, thetas_var,
+                                       return_complex=True)
+        morlet_func = theano.function([sigmas_var, slant_var, xis_var,
+                                       thetas_var], morlet_expr)
+        for i, sigma in enumerate(sigmas.ravel()):
+            for j, slant in enumerate(slants.ravel()):
+                for k, xi in enumerate(xis.ravel()):
+                    for l, theta in enumerate(thetas.ravel()):
+                        if verbose > 0:
+                            print (('sigma %1.2f\t'
+                                    'slant %1.2f\t'
+                                    'xi %1.2f\t'
+                                    'theta %1.2f') % (sigma, slant,
+                                                      xi, theta))
+                        fil = filters[:, :, i, j, k, l]
+                        theano_filter = morlet_func(
+                            np.array([sigma]).astype(np.float32),
+                            slant,
+                            np.array([xi]).astype(np.float32),
+                            np.array([theta]).astype(np.float32))
+                        assert_array_almost_equal(
+                            np.fft.fftshift(fil), theano_filter[0, 0])
+
+
+def _show_filters(i, j, k, l):
+    """Show filters generated using scatnet next to ours"""
+    fname = 'morlet_filters_noDC.mat'
+    
+    from scipy.io import loadmat
+    m = loadmat(fname)
+    N, M, sigmas, slants, xis, thetas, filters = [
+        m[key] for key in
+        ['N', 'M', 'sigmas', 'slants', 'xis', 'thetas', 'filters']]
+
+    N = int(N[0, 0])
+    M = int(M[0, 0])
+    sigmas_var = T.fvector()
+    slant_var = T.fscalar()
+    xis_var = T.fvector()
+    thetas_var = T.fvector()
+
+    morlet_expr = morlet_filter_2d((N, M), sigmas_var, slant_var,
+                                   xis_var, thetas_var,
+                                   return_complex=True)
+    morlet_func = theano.function([sigmas_var, slant_var, xis_var,
+                                   thetas_var], morlet_expr)
+    fil = filters[:, :, i, j, k, l]
+    sigma = sigmas[0, i]
+    slant = slants[0, j]
+    xi = xis[0, k]
+    theta = thetas[0, l]
+    theano_filter = morlet_func(
+        np.array([sigma]).astype(np.float32),
+        slant,
+        np.array([xi]).astype(np.float32),
+        np.array([theta]).astype(np.float32))
+    import matplotlib.pyplot as plt
+    plt.figure()
+    plt.subplot(2, 4, 1)
+    plt.plot(np.fft.fftshift(np.real(fil)))
+    plt.subplot(2, 4, 2)
+    plt.plot(np.fft.fftshift(np.imag(fil)))
+    plt.subplot(2, 4, 5)
+    plt.plot(np.real(theano_filter[0, 0]))
+    plt.subplot(2, 4, 6)
+    plt.plot(np.imag(theano_filter[0, 0]))
+    plt.subplot(2, 4, 3)
+    plt.imshow(np.fft.fftshift(np.real(fil)))
+    plt.subplot(2, 4, 4)
+    plt.imshow(np.fft.fftshift(np.imag(fil)))
+    plt.subplot(2, 4, 7)
+    plt.imshow(np.real(theano_filter[0, 0]))
+    plt.subplot(2, 4, 8)
+    plt.imshow(np.imag(theano_filter[0, 0]))
+    plt.show()
+
+
+def test__fft2(random_state=42):
+    rng = check_random_state(random_state)
+    arr = rng.randn(2, 3, 4, 5).astype(np.float32)
+    farr = np.fft.fftn(arr, axes=(2, 3))
+
+    inp = T.tensor4()
+    f_fft2 = theano.function([inp], _fft2(inp))
+    farr2 = f_fft2(arr)
+
+    assert_array_almost_equal(farr, farr2)
+
+
+def test_morlet_filter_bank_2d():
+    fname = 'morlet_pyramid_noDC.mat'
+
+    if os.path.exists(fname):
+        from scipy.io import loadmat
+        f = loadmat(fname)
+        ff = f['filters']
+        N, M, J, Q, L = map(int, [f[v] for v in ['N', 'M', 'J', 'Q', 'L']])
+        filter_list = ff.item()[1][0, 0][0][0]
+
+        pyramid_expr = morlet_filter_bank_2d(
+            (N, M), J=J, Q=Q, L=L,
+            return_complex=True,
+            littlewood_paley_normalization=True)
+        pyramid = pyramid_expr.eval()
+
+        i = 0
+        for j in range(J):
+            for l in range(L):
+                fil1 = filter_list[i]
+                crop_x, crop_y = (
+                    np.array(fil1.shape) - np.array([N, M])) / 2
+                cropped_fil1 = np.fft.fftshift(np.fft.ifft2(fil1))
+                cropped_fil1 = cropped_fil1[crop_x:-crop_x, crop_y:-crop_y]
+                fil2 = pyramid[j, l]
+                assert_array_almost_equal(cropped_fil1, fil2, decimal=3)
+                i = i + 1
