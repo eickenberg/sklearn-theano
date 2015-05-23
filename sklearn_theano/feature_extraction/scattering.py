@@ -181,9 +181,13 @@ def morlet_filter_bank_2d(shape, J=4, L=8, Q=1,
 
     filters = morlet_filter_2d(shape, sigmas, slant_psi, xis, angles,
                                return_complex=return_complex)
+    lowpass = morlet_filter_2d(shape, sigmas[J - 1:], 1.,
+                               np.array([0.]), np.array([0.]),
+                               return_complex=False,
+                               noDC=False)[:, :, 0]
 
     if not littlewood_paley_normalization:
-        return filters
+        return filters, lowpass
     else:
         c_filters = filters
         if not return_complex:
@@ -192,5 +196,6 @@ def morlet_filter_bank_2d(shape, J=4, L=8, Q=1,
         littlewood_paley = (fft_filters ** 2).sum(0).sum(0)
         K = littlewood_paley.max()
 
-        return filters / T.sqrt(K / 2)
+        return filters / T.sqrt(K / 2), lowpass
+
 

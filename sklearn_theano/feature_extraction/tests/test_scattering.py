@@ -189,19 +189,24 @@ def test_morlet_filter_bank_2d():
         ff = f['filters']
         N, M, J, Q, L = map(int, [f[v] for v in ['N', 'M', 'J', 'Q', 'L']])
         filter_list = ff.item()[1][0, 0][0][0]
+        lowpass_item = ff.item()[0][0, 0][0]
 
-        pyramid_expr = morlet_filter_bank_2d(
+        pyramid_expr, lowpass_expr = morlet_filter_bank_2d(
             (N, M), J=J, Q=Q, L=L,
             return_complex=True,
             littlewood_paley_normalization=True)
         pyramid = pyramid_expr.eval()
+        lowpass = lowpass_expr.eval()
+        crop_x, crop_y = (
+            np.array(lowpass_item.shape) - np.array([N, M])) / 2
+        cropped_lowpass_item = np.fft.fftshift(
+            np.fft.ifft2(lowpass_item))[crop_x:-crop_x, crop_y:-crop_y]
+        assert_array_almost_equal(cropped_lowpass_item, lowpass[0, 0])
 
         i = 0
         for j in range(J):
             for l in range(L):
                 fil1 = filter_list[i]
-                crop_x, crop_y = (
-                    np.array(fil1.shape) - np.array([N, M])) / 2
                 cropped_fil1 = np.fft.fftshift(np.fft.ifft2(fil1))
                 cropped_fil1 = cropped_fil1[crop_x:-crop_x, crop_y:-crop_y]
                 fil2 = pyramid[j, l]
