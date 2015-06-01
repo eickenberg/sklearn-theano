@@ -4,6 +4,7 @@ import theano.tensor as T
 import numpy as np
 from theano.sandbox import fourier
 
+floatX = theano.config.floatX
 
 def _rotation_matrices(angles):
     """Returns 2D rotation matrix expressions for all angles.
@@ -161,11 +162,13 @@ def _fft2(inp):
     return output
 
 
-def morlet_filter_bank_2d(shape, J=4, L=8, Q=1,
+def morlet_filter_bank_2d(shape=None, J=4, L=8, Q=1,
                           sigma_phi=0.8, sigma_psi=0.8,
                           xi_psi=None, slant_psi=None,
                           return_complex=False,
                           littlewood_paley_normalization=False):
+    if shape is None:
+        shape = (2 ** J * 4,) * 2
     if xi_psi is None:
         xi_psi = .5 * (2 ** (-1. / Q) + 1) * np.pi
     if slant_psi is None:
@@ -182,7 +185,8 @@ def morlet_filter_bank_2d(shape, J=4, L=8, Q=1,
     filters = morlet_filter_2d(shape, sigmas, slant_psi, xis, angles,
                                return_complex=return_complex)
     lowpass = morlet_filter_2d(shape, sigmas[J - 1:], 1.,
-                               np.array([0.]), np.array([0.]),
+                               np.array([0.]).astype(floatX),
+                               np.array([0.]).astype(floatX),
                                return_complex=False,
                                noDC=False)[:, :, 0]
 
@@ -194,8 +198,71 @@ def morlet_filter_bank_2d(shape, J=4, L=8, Q=1,
             c_filters = filters[:, :, 0] + 1j * filters[:, :, 1]
         fft_filters = abs(T.real(_fft2(c_filters)))
         littlewood_paley = (fft_filters ** 2).sum(0).sum(0)
-        K = littlewood_paley.max()
+        K = T.cast(littlewood_paley.max(), filters.dtype)
 
         return filters / T.sqrt(K / 2), lowpass
 
 
+def scattering(filters, lowpass, input_expression=None,
+                    subsample=1):
+
+    if input_expression is None:
+        inp = T.tensor3()
+    else:
+        inp = input_expression
+
+    shp = filters.shape
+    n_filters = T.prod(shp[:-2])
+    filters_reshaped = filters.reshape((n_filters, 1, shp[-2], shp[-1]))
+
+    lowpass_reshaped = lowpass.reshape((1, 1,
+                                        lowpass.shape[-2],
+                                        lowpass.shape[-1]))
+
+    inp_reshaped = inp.dimshuffle(0, 'x', 1, 2)
+    l0_out = T.nnet.conv2d(
+        inp_reshaped, lowpass_reshaped,
+        border_mode='full', subsample=(subsample,) * 2) * subsample
+    crop_size = lowpass.shape[-2:] // (subsample * 2)
+    l0_out_cropped = l0_out[:, :, crop_size[0]:-crop_size[0],
+                            crop_size[1]:-crop_size[1]]
+
+    l1 = T.nnet.conv2d(
+        inp_reshaped, filters_reshaped,
+        border_mode='full')
+    crop_size = filters.shape[-2:] // 2
+    l1_cropped = l1[:, :, crop_size[0]:-crop_size[0],
+                          crop_size[1]:-crop_size[1]]
+    l1_modulus_shape = (inp.shape[0] * shp[0] * shp[1], 1, 2,
+                l1_cropped.shape[-2], l1_cropped.shape[-1])
+    # l1_modulus_shape = (inp.shape[0] * shp[0] * shp[1], 1, 2,
+    #             l1.shape[-2], l1.shape[-1])
+    l1_modulus = T.sqrt(
+        (l1_cropped.reshape(l1_modulus_shape) ** 2).sum(axis=2))
+    # l1_modulus = T.sqrt(
+    #     (l1.reshape(l1_modulus_shape) ** 2).sum(axis=2))
+    l1_modulus_smoothed = T.nnet.conv2d(
+        l1_modulus, lowpass_reshaped,
+        border_mode='full', subsample=(subsample,) * 2) * subsample
+    crop_size = lowpass.shape[-2:] // (subsample * 2)
+    l1_modulus_smoothed_cropped = l1_modulus_smoothed[
+        :, :, crop_size[0]:-crop_size[0], crop_size[1]:-crop_size[1]]
+
+    l2 = T.nnet.conv2d(l1_modulus, filters_reshaped, border_mode='full')
+    l2_cropped = l2[:, :, crop_size[0]:-crop_size[0],
+                          crop_size[1]:-crop_size[1]]
+    l2_modulus_shape = (l1_modulus.shape[0] * shp[0] * shp[1], 1, 2,
+                l2_cropped.shape[-2], l2_cropped.shape[-1])
+    l2_modulus = T.sqrt(
+        (l2_cropped.reshape(l2_modulus_shape) ** 2).sum(axis=2))
+    l2_modulus_smoothed = T.nnet.conv2d(
+        l2_modulus, lowpass_reshaped,
+        border_mode='full', subsample=(subsample,) * 2) * subsample
+    l2_modulus_smoothed_cropped = l2_modulus_smoothed[
+        :, :, crop_size[0]:-crop_size[0], crop_size[1]:-crop_size[1]]
+    out_shape = (inp.shape[0], shp[0], shp[1], shp[0], shp[1],
+                 l2_modulus_smoothed_cropped.shape[-2],
+                 l2_modulus_smoothed_cropped.shape[-1])
+    l2_output = l2_modulus_smoothed_cropped.reshape(out_shape)
+
+    return l0_out_cropped, l1_modulus_smoothed_cropped, l2_output, inp
