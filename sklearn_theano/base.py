@@ -228,131 +228,17 @@ class MaxPool(object):
                                        ignore_border=True)
 
 
-def _gcd(num1, num2):
-    """Calculate gcd(num1, num2), greatest common divisor, using euclid's
-    algorithm"""
-    while (num2 != 0):
-        if num1 > num2:
-            num1, num2 = num2, num1
-        num2 -= (num2 // num1) * num1
-    return num1
 
 
-def _lcm(num1, num2):
-    """Calculate least common multiple of num1 and num2"""
-    return num1 * num2 // _gcd(num1, num2)
+def fancy_max_pool(input_tensor, pool_shape, pool_stride,
+                   ignore_border=False, padding=(0, 0)):
+    if padding not in [0, (0, 0)]:
+        ignore_border = True
+    return T.signal.downsample.max_pool_2d(input_tensor, pool_shape,
+                                           ignore_border=ignore_border,
+                                           st=pool_stride,
+                                           padding=padding)
 
-
-def fancy_max_pool_(input_tensor, pool_shape, pool_stride,
-                    ignore_border=False, padding=(0, 0)):
-    """Using theano built-in maxpooling, create a more flexible version.
-
-    Obviously suboptimal, but gets the work done."""
-
-    if isinstance(pool_shape, numbers.Number):
-        pool_shape = pool_shape,
-    if isinstance(pool_stride, numbers.Number):
-        pool_stride = pool_stride,
-
-    if len(pool_shape) == 1:
-        pool_shape = pool_shape * 2
-    if len(pool_stride) == 1:
-        pool_stride = pool_stride * 2
-
-    lcmh, lcmw = [_lcm(p, s) for p, s in zip(pool_shape, pool_stride)]
-    dsh, dsw = lcmh // pool_shape[0], lcmw // pool_shape[1]
-
-    if padding in [0, (0, 0)]:
-        padded_input = input_tensor
-    else:
-        zero_padder = ZeroPad(padding=padding)
-        zero_padder._build_expression(input_tensor)
-        padded_input = zero_padder.expression_
-
-    pre_shape = padded_input.shape[:-2]
-    length = T.prod(pre_shape)
-    post_shape = padded_input.shape[-2:]
-    new_shape = T.concatenate([[length], post_shape])
-    reshaped_input = padded_input.reshape(new_shape, ndim=3)
-    sub_pools = []
-    for sh in range(0, lcmh, pool_stride[0]):
-        sub_pool = []
-        sub_pools.append(sub_pool)
-        for sw in range(0, lcmw, pool_stride[1]):
-            full_pool = max_pool_2d(reshaped_input[:, sh:, sw:],
-                                    pool_shape, ignore_border=ignore_border)
-            ds_pool = full_pool[:, ::dsh, ::dsw]
-            concat_shape = T.concatenate([[length], ds_pool.shape[-2:]])
-            sub_pool.append(ds_pool.reshape(concat_shape, ndim=3))
-    output_shape = (length,
-                    T.sum([l[0].shape[1] for l in sub_pools]),
-                    T.sum([i.shape[2] for i in sub_pools[0]]))
-    output = T.zeros(output_shape, dtype=padded_input.dtype)
-    for i, line in enumerate(sub_pools):
-        for j, item in enumerate(line):
-            output = T.set_subtensor(output[:, i::lcmh // pool_stride[0],
-                                               j::lcmw // pool_stride[1]],
-                                     item)
-    return output.reshape(T.concatenate([pre_shape, output.shape[1:]]),
-                          ndim=padded_input.ndim)
-
-
-if LooseVersion(theano.__version__) < LooseVersion('0.7.0'):
-    warnings.warn(('Using theano 0.7.0 or later is recommended.'
-                   ' Current version is %s. Support for versions earlier'
-                   ' than 0.7.0 will be removed at first release.')
-                  % theano.__version__)
-    fancy_max_pool = fancy_max_pool_
-else:
-    def fancy_max_pool(input_tensor, pool_shape, pool_stride,
-                       ignore_border=False, padding=(0, 0)):
-        if padding not in [0, (0, 0)]:
-            ignore_border = True
-        return T.signal.downsample.max_pool_2d(input_tensor, pool_shape,
-                                              ignore_border=ignore_border,
-                                              st=pool_stride,
-                                              padding=padding)
-
-class FancyMaxPool(object):
-    """Extended pooling functionality. Allows independent specification
-    of pooling region shape and stride shape.
-
-    Parameters
-    ==========
-
-    pool_shape: tuple, (height, width)
-        Specifies the shape of the pooling regions
-
-    pool_stride: tuple, (vert, horiz)
-        Specifies the step between each pooling region
-
-    input_dtype: string, default 'float32'
-        Specifies the dtype of the input
-    """
-    def __init__(self, pool_shape, pool_stride,
-                 ignore_border=False, input_dtype='float32'):
-        self.pool_shape = pool_shape
-        self.pool_stride = pool_stride
-        self.ignore_border = ignore_border
-        self.input_dtype = input_dtype
-
-        self._build_expression()
-
-    def _build_expression(self, input_expression=None):
-        if input_expression is None:
-            self.input_ = T.tensor4(dtype=self.input_dtype)
-        else:
-            self.input_ = input_expression
-        print("Pooling: shape %s stride %s" % (str(self.pool_shape),
-                                               str(self.pool_stride)))
-        if self.pool_stride == self.pool_shape:
-            self.expression_ = T.signal.downsample.max_pool_2d(
-                self.input_, self.pool_shape,
-                ignore_border=self.ignore_border)
-        else:
-            self.expression_ = fancy_max_pool(self.input_, self.pool_shape,
-                                              self.pool_stride,
-                                              self.ignore_border)
 
 
 class CaffePool(object):

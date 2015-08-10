@@ -194,7 +194,7 @@ def _parse_caffe_model(caffe_model):
     return parsed
 
 
-from sklearn_theano.base import (Convolution, Relu, MaxPool, FancyMaxPool,
+from sklearn_theano.base import (Convolution, Relu, MaxPool,
                                  LRN, Feedforward, ZeroPad,
                                  CaffePool)
 
